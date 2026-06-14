@@ -1,0 +1,144 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: dark;
+  color: #E8F0F8;
+  background-color: #0A1628;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2A3F5F #0A1628;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #0A1628;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #2A3F5F;
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #3A4F6F;
+}
+
+@layer components {
+  .industrial-panel {
+    @apply bg-industrial-panel border border-industrial-border rounded-lg;
+    @apply shadow-[0_4px_20px_rgba(0,0,0,0.3)];
+  }
+
+  .industrial-button {
+    @apply px-4 py-2 rounded-md border border-industrial-border;
+    @apply bg-industrial-panel hover:bg-industrial-border transition-all duration-200;
+    @apply text-industrial-text font-mono text-sm;
+    @apply focus:outline-none focus:ring-2 focus:ring-accent/50;
+    @apply active:scale-[0.98];
+  }
+
+  .industrial-button-primary {
+    @apply industrial-button border-accent/50 text-accent;
+    @apply hover:bg-accent/10 hover:shadow-glow;
+  }
+
+  .industrial-button-warning {
+    @apply industrial-button border-warning/50 text-warning;
+    @apply hover:bg-warning/10 hover:shadow-glow-warning;
+  }
+
+  .industrial-button-success {
+    @apply industrial-button border-success/50 text-success;
+    @apply hover:bg-success/10 hover:shadow-glow-success;
+  }
+
+  .industrial-input {
+    @apply w-full px-3 py-2 rounded-md bg-industrial-bg border border-industrial-border;
+    @apply text-industrial-text font-mono text-sm;
+    @apply focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50;
+    @apply placeholder:text-industrial-muted;
+  }
+
+  .industrial-label {
+    @apply text-xs font-mono text-industrial-muted uppercase tracking-wider;
+  }
+
+  .status-indicator {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .status-active {
+    @apply bg-success animate-pulse-glow;
+  }
+
+  .status-warning {
+    @apply bg-warning animate-pulse;
+  }
+
+  .status-error {
+    @apply bg-danger animate-pulse;
+  }
+
+  .status-idle {
+    @apply bg-industrial-muted;
+  }
+
+  .glow-text {
+    text-shadow: 0 0 10px currentColor;
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(42, 63, 95, 0.15) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(42, 63, 95, 0.15) 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+
+  .scanline-overlay::before {
+    content: '';
+    @apply absolute inset-0 pointer-events-none overflow-hidden;
+    background: linear-gradient(
+      to bottom,
+      transparent 50%,
+      rgba(0, 240, 255, 0.03) 50%
+    );
+    background-size: 100% 4px;
+  }
+}
+
+@keyframes waveform-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.animate-waveform {
+  animation: waveform-pulse 0.5s ease-in-out infinite;
+}
+
+@keyframes ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-ticker {
+  animation: ticker 30s linear infinite;
+}
