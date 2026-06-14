@@ -24,7 +24,8 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*.cjs",
+      "electron/**/*.js"
     ],
     "win": {
       "target": [

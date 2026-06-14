@@ -23,7 +23,6 @@ function createWindow() {
       contextIsolation: true,
       webSecurity: !isDev,
     },
-    icon: path.join(__dirname, '../public/icon.png'),
   });
 
   if (isDev) {

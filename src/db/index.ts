@@ -8,6 +8,8 @@ import {
   Category,
   PumpConfig,
   PhysicalConfig,
+  SafetyWarning,
+  FlowStatus,
 } from '@/types';
 
 export interface ScriptRecord {
@@ -28,6 +30,8 @@ export interface ScriptRecord {
   actions: TimedAction[];
   analysisResult: AudioAnalysisResult | null;
   performanceRecords: PerformanceRecord[];
+  safetyWarnings: SafetyWarning[];
+  flowStatuses: FlowStatus[];
 }
 
 export interface SettingsRecord {
@@ -119,6 +123,8 @@ function recordToScript(record: ScriptRecord): ShowScript {
     actions: record.actions,
     analysisResult: record.analysisResult,
     performanceRecords: record.performanceRecords,
+    safetyWarnings: record.safetyWarnings || [],
+    flowStatuses: record.flowStatuses || [],
   };
 }
 
@@ -141,6 +147,8 @@ function scriptToRecord(script: ShowScript): ScriptRecord {
     actions: script.actions,
     analysisResult: script.analysisResult,
     performanceRecords: script.performanceRecords,
+    safetyWarnings: script.safetyWarnings || [],
+    flowStatuses: script.flowStatuses || [],
   };
 }
 

@@ -88,7 +88,7 @@ interface AppState {
   calibrateTiming: () => void;
   validateSafety: () => void;
 
-  createNewScript: (name: string, category: string) => void;
+  createNewScript: (name: string, category: string) => Promise<void>;
   saveScript: () => Promise<void>;
   loadScript: (id: string) => Promise<void>;
   deleteScript: (id: string) => Promise<void>;
@@ -132,6 +132,11 @@ const createMockScripts = (): ShowScript[] => {
   trackNames.forEach((track, index) => {
     const analysis = generateMockAnalysis(track.duration);
     const groups = generateDefaultNozzleGroups();
+    const actions = autoMatchEffects(analysis, DEFAULT_WATER_EFFECTS, groups);
+    const flowStatuses = checkFlowCapacity(actions, groups, DEFAULT_PUMP_CONFIG);
+    const flowWarnings = generateFlowWarnings(flowStatuses);
+    const waterHammerWarnings = checkWaterHammer(actions);
+    const safetyWarnings = [...flowWarnings, ...waterHammerWarnings];
 
     mockScripts.push({
       id: `script-${index}`,
@@ -145,7 +150,7 @@ const createMockScripts = (): ShowScript[] => {
       createdAt: Date.now() - index * 86400000,
       updatedAt: Date.now() - index * 43200000,
       version: `1.${index}.0`,
-      actions: autoMatchEffects(analysis, DEFAULT_WATER_EFFECTS, groups),
+      actions,
       nozzleGroups: groups,
       analysisResult: analysis,
       performanceRecords: [
@@ -160,6 +165,8 @@ const createMockScripts = (): ShowScript[] => {
           duration: track.duration,
         },
       ],
+      safetyWarnings,
+      flowStatuses,
       description: `为《${track.name}》精心编排的水形方案`,
     });
   });
@@ -252,15 +259,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       isCalibrated: false,
     };
 
-    set((state) => ({
-      currentScript: state.currentScript
-        ? {
-            ...state.currentScript,
-            actions: [...state.currentScript.actions, newAction],
-            updatedAt: Date.now(),
-          }
-        : null,
-    }));
+    set((state) => {
+      const newActions = [...state.currentScript.actions, newAction];
+      return {
+        currentScript: state.currentScript
+          ? {
+              ...state.currentScript,
+              actions: newActions,
+              safetyWarnings: [],
+              flowStatuses: [],
+              updatedAt: Date.now(),
+            }
+          : null,
+        warnings: [],
+        flowStatuses: [],
+      };
+    });
   },
 
   updateAction: (id, updates) => {
@@ -278,12 +292,21 @@ export const useAppStore = create<AppState>((set, get) => ({
         return updated;
       });
 
+      const hasActionChanges = updates.startTime !== undefined || 
+                              updates.duration !== undefined ||
+                              updates.intensity !== undefined ||
+                              updates.nozzleGroupId !== undefined;
+
       return {
         currentScript: {
           ...state.currentScript,
           actions: updatedActions,
+          safetyWarnings: hasActionChanges ? [] : state.currentScript.safetyWarnings,
+          flowStatuses: hasActionChanges ? [] : state.currentScript.flowStatuses,
           updatedAt: Date.now(),
         },
+        warnings: hasActionChanges ? [] : state.warnings,
+        flowStatuses: hasActionChanges ? [] : state.flowStatuses,
       };
     });
   },
@@ -294,10 +317,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? {
             ...state.currentScript,
             actions: state.currentScript.actions.filter((a) => a.id !== id),
+            safetyWarnings: [],
+            flowStatuses: [],
             updatedAt: Date.now(),
           }
         : null,
       selectedActionId: state.selectedActionId === id ? null : state.selectedActionId,
+      warnings: [],
+      flowStatuses: [],
     }));
   },
 
@@ -313,15 +340,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       originalStartTime: action.originalStartTime + 500,
     };
 
-    set((s) => ({
-      currentScript: s.currentScript
-        ? {
-            ...s.currentScript,
-            actions: [...s.currentScript.actions, newAction],
-            updatedAt: Date.now(),
-          }
-        : null,
-    }));
+    set((s) => {
+      const newActions = [...s.currentScript.actions, newAction];
+      return {
+        currentScript: s.currentScript
+          ? {
+              ...s.currentScript,
+              actions: newActions,
+              safetyWarnings: [],
+              flowStatuses: [],
+              updatedAt: Date.now(),
+            }
+          : null,
+        warnings: [],
+        flowStatuses: [],
+      };
+    });
   },
 
   addNozzleGroup: (group) => {
@@ -330,24 +364,55 @@ export const useAppStore = create<AppState>((set, get) => ({
       id: generateId('group'),
     };
 
-    set((state) => ({
-      nozzleGroups: [...state.nozzleGroups, newGroup],
-    }));
+    set((state) => {
+      const newNozzleGroups = [...state.nozzleGroups, newGroup];
+      return {
+        nozzleGroups: newNozzleGroups,
+        currentScript: state.currentScript
+          ? {
+              ...state.currentScript,
+              nozzleGroups: newNozzleGroups,
+              updatedAt: Date.now(),
+            }
+          : null,
+      };
+    });
   },
 
   updateNozzleGroup: (id, updates) => {
-    set((state) => ({
-      nozzleGroups: state.nozzleGroups.map((g) =>
+    set((state) => {
+      const newNozzleGroups = state.nozzleGroups.map((g) =>
         g.id === id ? { ...g, ...updates } : g
-      ),
-    }));
+      );
+
+      return {
+        nozzleGroups: newNozzleGroups,
+        currentScript: state.currentScript
+          ? {
+              ...state.currentScript,
+              nozzleGroups: newNozzleGroups,
+              updatedAt: Date.now(),
+            }
+          : null,
+      };
+    });
   },
 
   deleteNozzleGroup: (id) => {
-    set((state) => ({
-      nozzleGroups: state.nozzleGroups.filter((g) => g.id !== id),
-      selectedGroupId: state.selectedGroupId === id ? null : state.selectedGroupId,
-    }));
+    set((state) => {
+      const newNozzleGroups = state.nozzleGroups.filter((g) => g.id !== id);
+      return {
+        nozzleGroups: newNozzleGroups,
+        selectedGroupId: state.selectedGroupId === id ? null : state.selectedGroupId,
+        currentScript: state.currentScript
+          ? {
+              ...state.currentScript,
+              nozzleGroups: newNozzleGroups,
+              updatedAt: Date.now(),
+            }
+          : null,
+      };
+    });
   },
 
   importAudioFile: async (file) => {
@@ -410,10 +475,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? {
             ...s.currentScript,
             actions,
+            safetyWarnings: [],
+            flowStatuses: [],
             updatedAt: Date.now(),
           }
         : null,
       isCalibrated: false,
+      warnings: [],
+      flowStatuses: [],
     }));
 
     get().validateSafety();
@@ -434,10 +503,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? {
             ...s.currentScript,
             actions: calibratedActions,
+            safetyWarnings: [],
+            flowStatuses: [],
             updatedAt: Date.now(),
           }
         : null,
       isCalibrated: true,
+      warnings: [],
+      flowStatuses: [],
     }));
 
     get().validateSafety();
@@ -455,14 +528,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const flowWarnings = generateFlowWarnings(flowStatuses);
     const waterHammerWarnings = checkWaterHammer(state.currentScript.actions);
+    const warnings = [...flowWarnings, ...waterHammerWarnings];
 
-    set({
+    set((s) => ({
       flowStatuses,
-      warnings: [...flowWarnings, ...waterHammerWarnings],
-    });
+      warnings,
+      currentScript: s.currentScript
+        ? {
+            ...s.currentScript,
+            safetyWarnings: warnings,
+            flowStatuses,
+            updatedAt: Date.now(),
+          }
+        : null,
+    }));
   },
 
-  createNewScript: (name, category) => {
+  createNewScript: async (name, category) => {
     const state = get();
     const newScript: ShowScript = {
       id: generateId('script'),
@@ -480,7 +562,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       nozzleGroups: [...state.nozzleGroups],
       analysisResult: state.analysisResult,
       performanceRecords: [],
+      safetyWarnings: [],
+      flowStatuses: [],
     };
+
+    try {
+      if (state.isDbReady) {
+        await db.saveScript(newScript);
+        await state.refreshScripts();
+      }
+    } catch (error) {
+      console.error('Failed to auto-save new script:', error);
+    }
 
     set((s) => ({
       scripts: [newScript, ...s.scripts],
@@ -500,6 +593,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         updatedAt: Date.now(),
         version: incrementVersion(state.currentScript.version),
         nozzleGroups: state.nozzleGroups,
+        safetyWarnings: state.warnings,
+        flowStatuses: state.flowStatuses,
       };
 
       if (state.isDbReady) {
@@ -536,6 +631,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           currentScript: script,
           analysisResult: script.analysisResult,
           nozzleGroups: script.nozzleGroups,
+          warnings: script.safetyWarnings || [],
+          flowStatuses: script.flowStatuses || [],
           playback: {
             ...get().playback,
             currentTime: 0,
@@ -544,8 +641,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           },
           isLoading: false,
         });
-
-        get().validateSafety();
       }
     } catch (error) {
       console.error('Failed to load script:', error);
@@ -571,15 +666,19 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   exportScript: (id) => {
     const state = get();
-    const script = state.scripts.find((s) => s.id === id);
-    if (!script && state.currentScript?.id === id) {
+
+    if (state.currentScript && state.currentScript.id === id) {
       const scriptToExport = {
         ...state.currentScript,
         nozzleGroups: state.nozzleGroups,
+        safetyWarnings: state.warnings,
+        flowStatuses: state.flowStatuses,
       };
       downloadScript(scriptToExport);
       return;
     }
+
+    const script = state.scripts.find((s) => s.id === id);
     if (script) {
       downloadScript(script);
     }
@@ -616,6 +715,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         })) : generateDefaultNozzleGroups(),
         analysisResult: data.analysisResult || null,
         performanceRecords: Array.isArray(data.performanceRecords) ? data.performanceRecords : [],
+        safetyWarnings: Array.isArray(data.safetyWarnings) ? data.safetyWarnings.map((w: any) => ({
+          ...w,
+          id: generateId('warning'),
+        })) : [],
+        flowStatuses: Array.isArray(data.flowStatuses) ? data.flowStatuses : [],
         description: data.description || '',
       };
 
@@ -629,13 +733,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         currentScript: importedScript,
         analysisResult: importedScript.analysisResult,
         nozzleGroups: importedScript.nozzleGroups,
+        warnings: importedScript.safetyWarnings,
+        flowStatuses: importedScript.flowStatuses,
         playback: {
           ...state.playback,
           duration: importedScript.duration,
         },
       }));
-
-      get().validateSafety();
     } catch (error) {
       console.error('Failed to import script:', error);
       throw error;
@@ -685,11 +789,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   resolveWarning: (id) => {
-    set((state) => ({
-      warnings: state.warnings.map((w) =>
+    set((state) => {
+      const updatedWarnings = state.warnings.map((w) =>
         w.id === id ? { ...w, resolved: true } : w
-      ),
-    }));
+      );
+
+      return {
+        warnings: updatedWarnings,
+        currentScript: state.currentScript
+          ? {
+              ...state.currentScript,
+              safetyWarnings: updatedWarnings,
+              updatedAt: Date.now(),
+            }
+          : null,
+      };
+    });
   },
 
   clearWarnings: () => {

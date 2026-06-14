@@ -55,11 +55,11 @@ export const AudioAnalysisPage: React.FC = () => {
     setPlayback({ duration: 0, currentTime: 0, isPlaying: false, speed: 1, loop: false, volume: 0.8 });
   };
 
-  const handleCreateScript = () => {
+  const handleCreateScript = async () => {
     if (!analysisResult) return;
 
     const name = scriptName || `${currentTrack?.name || '未命名'} - 水形编排`;
-    createNewScript(name, scriptCategory);
+    await createNewScript(name, scriptCategory);
     setShowCreateModal(false);
     navigate('/choreography');
   };
