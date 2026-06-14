@@ -122,6 +122,8 @@ export interface ShowScript {
   nozzleGroups: NozzleGroup[];
   analysisResult: AudioAnalysisResult | null;
   performanceRecords: PerformanceRecord[];
+  safetyWarnings: SafetyWarning[];
+  flowStatuses: FlowStatus[];
   coverImage?: string;
   description?: string;
 }

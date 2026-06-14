@@ -3,7 +3,7 @@
   "productName": "音乐喷泉编排工作室",
   "private": true,
   "version": "1.0.0",
-  "main": "electron/main.js",
+  "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "vite",
