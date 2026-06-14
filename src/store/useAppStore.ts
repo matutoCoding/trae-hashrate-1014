@@ -569,16 +569,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       if (state.isDbReady) {
         await db.saveScript(newScript);
-        await state.refreshScripts();
+        const scripts = await db.getAllScripts();
+        set({
+          scripts,
+          currentScript: newScript,
+        });
+      } else {
+        set((s) => ({
+          scripts: [newScript, ...s.scripts],
+          currentScript: newScript,
+        }));
       }
     } catch (error) {
       console.error('Failed to auto-save new script:', error);
+      set((s) => ({
+        scripts: [newScript, ...s.scripts],
+        currentScript: newScript,
+      }));
     }
-
-    set((s) => ({
-      scripts: [newScript, ...s.scripts],
-      currentScript: newScript,
-    }));
   },
 
   saveScript: async () => {
@@ -599,13 +607,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (state.isDbReady) {
         await db.saveScript(updatedScript);
-        await get().refreshScripts();
+        const scripts = await db.getAllScripts();
+        set({
+          scripts,
+          currentScript: updatedScript,
+          isSaving: false,
+        });
+      } else {
+        set({
+          currentScript: updatedScript,
+          isSaving: false,
+        });
       }
-
-      set({
-        currentScript: updatedScript,
-        isSaving: false,
-      });
     } catch (error) {
       console.error('Failed to save script:', error);
       set({ isSaving: false });
@@ -652,13 +665,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       if (get().isDbReady) {
         await db.deleteScript(id);
-        await get().refreshScripts();
+        const scripts = await db.getAllScripts();
+        set({
+          scripts,
+          currentScript: get().currentScript?.id === id ? null : get().currentScript,
+        });
+      } else {
+        set((state) => ({
+          scripts: state.scripts.filter((s) => s.id !== id),
+          currentScript: state.currentScript?.id === id ? null : state.currentScript,
+        }));
       }
-
-      set((state) => ({
-        scripts: state.scripts.filter((s) => s.id !== id),
-        currentScript: state.currentScript?.id === id ? null : state.currentScript,
-      }));
     } catch (error) {
       console.error('Failed to delete script:', error);
     }
@@ -689,6 +706,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       const text = await file.text();
       const data = JSON.parse(text);
 
+      const importedNozzleGroups = Array.isArray(data.nozzleGroups)
+        ? data.nozzleGroups.map((g: any) => ({
+            ...g,
+            oldId: g.id,
+            id: generateId('group'),
+            nozzles: g.nozzles || [],
+          }))
+        : generateDefaultNozzleGroups().map((g) => ({ ...g, oldId: g.id }));
+
+      const groupIdMap = new Map<string, string>();
+      importedNozzleGroups.forEach((g: any) => {
+        if (g.oldId) {
+          groupIdMap.set(g.oldId, g.id);
+        }
+      });
+
+      importedNozzleGroups.forEach((g: any) => { delete g.oldId; });
+
       const importedScript: ShowScript = {
         id: generateId('script'),
         name: data.name || file.name.replace(/\.[^/.]+$/, ''),
@@ -704,15 +739,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         actions: Array.isArray(data.actions) ? data.actions.map((a: any) => ({
           ...a,
           id: generateId('action'),
+          nozzleGroupId: groupIdMap.get(a.nozzleGroupId) || a.nozzleGroupId,
           originalStartTime: a.originalStartTime ?? a.startTime,
           delayCompensation: a.delayCompensation || 0,
           isCalibrated: a.isCalibrated ?? false,
         })) : [],
-        nozzleGroups: Array.isArray(data.nozzleGroups) ? data.nozzleGroups.map((g: any) => ({
-          ...g,
-          id: generateId('group'),
-          nozzles: g.nozzles || [],
-        })) : generateDefaultNozzleGroups(),
+        nozzleGroups: importedNozzleGroups,
         analysisResult: data.analysisResult || null,
         performanceRecords: Array.isArray(data.performanceRecords) ? data.performanceRecords : [],
         safetyWarnings: Array.isArray(data.safetyWarnings) ? data.safetyWarnings.map((w: any) => ({
@@ -725,21 +757,33 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (get().isDbReady) {
         await db.saveScript(importedScript);
-        await get().refreshScripts();
+        const scripts = await db.getAllScripts();
+        set((state) => ({
+          scripts,
+          currentScript: importedScript,
+          analysisResult: importedScript.analysisResult,
+          nozzleGroups: importedScript.nozzleGroups,
+          warnings: importedScript.safetyWarnings,
+          flowStatuses: importedScript.flowStatuses,
+          playback: {
+            ...state.playback,
+            duration: importedScript.duration,
+          },
+        }));
+      } else {
+        set((state) => ({
+          scripts: [importedScript, ...state.scripts],
+          currentScript: importedScript,
+          analysisResult: importedScript.analysisResult,
+          nozzleGroups: importedScript.nozzleGroups,
+          warnings: importedScript.safetyWarnings,
+          flowStatuses: importedScript.flowStatuses,
+          playback: {
+            ...state.playback,
+            duration: importedScript.duration,
+          },
+        }));
       }
-
-      set((state) => ({
-        scripts: [importedScript, ...state.scripts],
-        currentScript: importedScript,
-        analysisResult: importedScript.analysisResult,
-        nozzleGroups: importedScript.nozzleGroups,
-        warnings: importedScript.safetyWarnings,
-        flowStatuses: importedScript.flowStatuses,
-        playback: {
-          ...state.playback,
-          duration: importedScript.duration,
-        },
-      }));
     } catch (error) {
       console.error('Failed to import script:', error);
       throw error;
@@ -763,11 +807,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return {
         currentScript: updatedScript,
-        scripts: state.scripts.map((s) =>
-          s.id === updatedScript.id ? updatedScript : s
-        ),
       };
     });
+
+    if (get().isDbReady && get().currentScript) {
+      db.saveScript(get().currentScript!);
+    }
   },
 
   updatePlaybackTime: (time) => {

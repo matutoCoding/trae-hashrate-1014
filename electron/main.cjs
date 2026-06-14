@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron')
 const path = require('path');
 const fs = require('fs');
 
-const isDev = process.env.NODE_ENV === 'development';
+const isDev = process.env.NODE_ENV === 'development' || process.defaultApp || /[\\/]electron/.test(process.execPath);
 const isMac = process.platform === 'darwin';
 
 let mainWindow;
@@ -30,7 +30,8 @@ function createWindow() {
     mainWindow.loadURL(devServerUrl);
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    const distPath = path.join(__dirname, '..', 'dist', 'index.html');
+    mainWindow.loadFile(distPath);
   }
 
   mainWindow.on('closed', () => {

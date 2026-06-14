@@ -24,9 +24,11 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*.cjs",
-      "electron/**/*.js"
+      "electron/**/*"
     ],
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    },
     "win": {
       "target": [
         {
