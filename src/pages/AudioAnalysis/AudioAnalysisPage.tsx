@@ -14,25 +14,24 @@ import { FileUpload, FileInfo } from '@/components/common/FileUpload';
 import { PlaybackControls } from '@/components/common/PlaybackControls';
 import { DigitalDisplay, StatusIndicator } from '@/components/Dashboard/Gauges';
 import { useAppStore } from '@/store/useAppStore';
-import { analyzeAudioFile, getSectionTypeName, getSectionTypeColor } from '@/algorithm/audioAnalysis';
-import { formatTime } from '@/algorithm/core';
+import { getSectionTypeName, getSectionTypeColor } from '@/algorithm/audioAnalysis';
+import { formatTime } from '@/utils/helpers';
 import { TrackInfo } from '@/types';
 
 export const AudioAnalysisPage: React.FC = () => {
   const navigate = useNavigate();
-  const [importedTrack, setImportedTrack] = useState<TrackInfo | null>(null);
 
   const analysisResult = useAppStore((state) => state.analysisResult);
   const isAnalyzing = useAppStore((state) => state.isAnalyzing);
   const playback = useAppStore((state) => state.playback);
-  const setAnalysisResult = useAppStore((state) => state.setAnalysisResult);
   const setCurrentTrack = useAppStore((state) => state.setCurrentTrack);
+  const setAnalysisResult = useAppStore((state) => state.setAnalysisResult);
   const setPlayback = useAppStore((state) => state.setPlayback);
   const updatePlaybackTime = useAppStore((state) => state.updatePlaybackTime);
   const togglePlay = useAppStore((state) => state.togglePlay);
   const resetPlayback = useAppStore((state) => state.resetPlayback);
-  const importTrack = useAppStore((state) => state.importTrack);
-  const analyzeTrack = useAppStore((state) => state.analyzeTrack);
+  const importAudioFile = useAppStore((state) => state.importAudioFile);
+  const currentTrack = useAppStore((state) => state.currentTrack);
   const createNewScript = useAppStore((state) => state.createNewScript);
   const categories = useAppStore((state) => state.categories);
   const currentScript = useAppStore((state) => state.currentScript);
@@ -42,45 +41,27 @@ export const AudioAnalysisPage: React.FC = () => {
   const [scriptCategory, setScriptCategory] = useState('pop');
 
   const handleFileSelect = async (file: File) => {
-    const track: TrackInfo = {
-      id: `track-${Date.now()}`,
-      name: file.name.replace(/\.[^/.]+$/, ''),
-      artist: '未知艺术家',
-      duration: 180000,
-      filePath: file.name,
-      fileHash: `hash-${Date.now()}`,
-      fileSize: file.size,
-      format: file.name.split('.').pop()?.toUpperCase() || 'MP3',
-      importedAt: Date.now(),
-    };
-
-    setImportedTrack(track);
-    setCurrentTrack(track);
-    importTrack(file);
-
-    const result = await analyzeAudioFile(file);
-    setAnalysisResult(result);
-    setPlayback({ duration: result.duration, currentTime: 0 });
+    try {
+      await importAudioFile(file);
+    } catch (error) {
+      console.error('Failed to import audio:', error);
+      alert('音频分析失败，请检查文件格式');
+    }
   };
 
-  const handleAnalyze = () => {
-    analyzeTrack();
+  const handleRemoveTrack = () => {
+    setCurrentTrack(null);
+    setAnalysisResult(null);
+    setPlayback({ duration: 0, currentTime: 0, isPlaying: false, speed: 1, loop: false, volume: 0.8 });
   };
 
   const handleCreateScript = () => {
     if (!analysisResult) return;
 
-    const name = scriptName || `${importedTrack?.name || '未命名'} - 水形编排`;
+    const name = scriptName || `${currentTrack?.name || '未命名'} - 水形编排`;
     createNewScript(name, scriptCategory);
     setShowCreateModal(false);
     navigate('/choreography');
-  };
-
-  const handleRemoveTrack = () => {
-    setImportedTrack(null);
-    setCurrentTrack(null);
-    setAnalysisResult(null);
-    setPlayback({ duration: 0, currentTime: 0, isPlaying: false, speed: 1, loop: false, volume: 0.8 });
   };
 
   return (
@@ -114,7 +95,7 @@ export const AudioAnalysisPage: React.FC = () => {
       </div>
 
       <div className="flex-1 flex flex-col gap-4 overflow-hidden">
-        {!importedTrack ? (
+        {!currentTrack ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="w-full max-w-xl">
               <FileUpload onFileSelect={handleFileSelect} />
@@ -132,12 +113,11 @@ export const AudioAnalysisPage: React.FC = () => {
           <>
             <div className="flex-shrink-0">
               <FileInfo
-                name={importedTrack.name}
-                size={importedTrack.fileSize}
-                format={importedTrack.format}
+                name={currentTrack.name}
+                size={currentTrack.fileSize}
+                format={currentTrack.format}
                 duration={analysisResult?.duration}
                 onRemove={handleRemoveTrack}
-                onAnalyze={!analysisResult ? handleAnalyze : undefined}
                 isAnalyzing={isAnalyzing}
               />
             </div>
@@ -284,7 +264,7 @@ export const AudioAnalysisPage: React.FC = () => {
                     ) : (
                       <button
                         onClick={() => {
-                          setScriptName(`${importedTrack.name} - 水形编排`);
+                          setScriptName(`${currentTrack.name} - 水形编排`);
                           setShowCreateModal(true);
                         }}
                         className="industrial-button-success flex items-center gap-2"

@@ -30,10 +30,16 @@ export const applyDelayCompensation = (
     const height = (action.parameters.height || 50) / 100 * 20;
     const compensation = calculateDelayCompensation(action, group, physicalConfig, height);
 
+    const baseTime = action.originalStartTime !== undefined
+      ? action.originalStartTime
+      : action.startTime;
+
     return {
       ...action,
+      originalStartTime: baseTime,
       delayCompensation: compensation,
-      startTime: Math.max(0, action.startTime - compensation),
+      startTime: Math.max(0, baseTime - compensation),
+      isCalibrated: true,
     };
   });
 };
@@ -255,11 +261,13 @@ export const autoMatchEffects = (
           nozzleGroupId: group.id,
           effectId,
           startTime: beatTime,
+          originalStartTime: beatTime,
           duration,
           intensity: actionIntensity,
           delayCompensation: 0,
           parameters: baseParams,
           sectionId: section.id,
+          isCalibrated: false,
         });
       }
     });
@@ -273,11 +281,13 @@ export const autoMatchEffects = (
         nozzleGroupId: nozzleGroups[0].id,
         effectId: 'burst-simultaneous',
         startTime: downbeat,
+        originalStartTime: downbeat,
         duration: beatInterval * 3,
         intensity: 1.0,
         delayCompensation: 0,
         parameters: { height: 100, riseTime: 400, fallTime: 600 },
         sectionId: section.id,
+        isCalibrated: false,
       });
     }
   });

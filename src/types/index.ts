@@ -66,11 +66,13 @@ export interface TimedAction {
   nozzleGroupId: string;
   effectId: string;
   startTime: number;
+  originalStartTime: number;
   duration: number;
   intensity: number;
   delayCompensation: number;
   parameters: Record<string, any>;
   sectionId?: string;
+  isCalibrated?: boolean;
 }
 
 export interface SafetyWarning {

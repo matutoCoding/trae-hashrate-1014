@@ -13,6 +13,7 @@ import {
   TrackInfo,
   Category,
   ScriptFilter,
+  PerformanceRecord,
 } from '../types';
 import {
   DEFAULT_WATER_EFFECTS,
@@ -29,7 +30,12 @@ import {
   autoMatchEffects,
   generateId,
 } from '../algorithm/core';
-import { generateMockAnalysis } from '../algorithm/audioAnalysis';
+import {
+  analyzeAudioFile,
+  generateMockAnalysis,
+  computeFileHash,
+} from '../algorithm/audioAnalysis';
+import { db } from '../db';
 
 interface AppState {
   currentScript: ShowScript | null;
@@ -50,7 +56,12 @@ interface AppState {
   selectedGroupId: string | null;
   isAnalyzing: boolean;
   isSaving: boolean;
+  isLoading: boolean;
   isCalibrated: boolean;
+  isDbReady: boolean;
+
+  initDatabase: () => Promise<void>;
+  refreshScripts: () => Promise<void>;
 
   setCurrentScript: (script: ShowScript | null) => void;
   setCurrentTrack: (track: TrackInfo | null) => void;
@@ -62,7 +73,7 @@ interface AppState {
   setPhysicalConfig: (config: Partial<PhysicalConfig>) => void;
   setScriptFilter: (filter: Partial<ScriptFilter>) => void;
 
-  addAction: (action: Omit<TimedAction, 'id'>) => void;
+  addAction: (action: Omit<TimedAction, 'id' | 'originalStartTime' | 'isCalibrated' | 'delayCompensation'>) => void;
   updateAction: (id: string, updates: Partial<TimedAction>) => void;
   deleteAction: (id: string) => void;
   duplicateAction: (id: string) => void;
@@ -71,7 +82,7 @@ interface AppState {
   updateNozzleGroup: (id: string, updates: Partial<NozzleGroup>) => void;
   deleteNozzleGroup: (id: string) => void;
 
-  importTrack: (file: File) => Promise<void>;
+  importAudioFile: (file: File) => Promise<void>;
   analyzeTrack: () => Promise<void>;
   autoMatchEffects: () => void;
   calibrateTiming: () => void;
@@ -79,9 +90,12 @@ interface AppState {
 
   createNewScript: (name: string, category: string) => void;
   saveScript: () => Promise<void>;
-  loadScript: (id: string) => void;
-  deleteScript: (id: string) => void;
-  exportScript: (id: string, path: string) => void;
+  loadScript: (id: string) => Promise<void>;
+  deleteScript: (id: string) => Promise<void>;
+  exportScript: (id: string) => void;
+  importScript: (file: File) => Promise<void>;
+
+  recordPerformance: (record: Omit<PerformanceRecord, 'id'>) => void;
 
   updatePlaybackTime: (time: number) => void;
   togglePlay: () => void;
@@ -155,7 +169,7 @@ const createMockScripts = (): ShowScript[] => {
 
 export const useAppStore = create<AppState>((set, get) => ({
   currentScript: null,
-  scripts: createMockScripts(),
+  scripts: [],
   tracks: [],
   waterEffects: DEFAULT_WATER_EFFECTS,
   categories: DEFAULT_CATEGORIES,
@@ -172,7 +186,44 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedGroupId: null,
   isAnalyzing: false,
   isSaving: false,
+  isLoading: false,
   isCalibrated: false,
+  isDbReady: false,
+
+  initDatabase: async () => {
+    try {
+      const mockScripts = createMockScripts();
+      const defaultSettings = {
+        id: 'default',
+        pumpConfig: DEFAULT_PUMP_CONFIG,
+        physicalConfig: DEFAULT_PHYSICAL_CONFIG,
+        categories: DEFAULT_CATEGORIES,
+      };
+
+      await db.initializeWithMockData(mockScripts, defaultSettings);
+      const scripts = await db.getAllScripts();
+
+      set({
+        scripts,
+        isDbReady: true,
+      });
+    } catch (error) {
+      console.error('Failed to initialize database:', error);
+      set({
+        scripts: createMockScripts(),
+        isDbReady: true,
+      });
+    }
+  },
+
+  refreshScripts: async () => {
+    try {
+      const scripts = await db.getAllScripts();
+      set({ scripts });
+    } catch (error) {
+      console.error('Failed to refresh scripts:', error);
+    }
+  },
 
   setCurrentScript: (script) => set({ currentScript: script }),
   setCurrentTrack: (track) => set({ currentTrack: track }),
@@ -196,7 +247,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newAction: TimedAction = {
       ...action,
       id: generateId('action'),
+      originalStartTime: action.startTime,
       delayCompensation: 0,
+      isCalibrated: false,
     };
 
     set((state) => ({
@@ -211,17 +264,28 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateAction: (id, updates) => {
-    set((state) => ({
-      currentScript: state.currentScript
-        ? {
-            ...state.currentScript,
-            actions: state.currentScript.actions.map((a) =>
-              a.id === id ? { ...a, ...updates } : a
-            ),
-            updatedAt: Date.now(),
-          }
-        : null,
-    }));
+    set((state) => {
+      if (!state.currentScript) return { currentScript: null };
+
+      const updatedActions = state.currentScript.actions.map((a) => {
+        if (a.id !== id) return a;
+        const updated = { ...a, ...updates };
+        if (updates.startTime !== undefined) {
+          updated.originalStartTime = updates.startTime;
+          updated.isCalibrated = false;
+          updated.delayCompensation = 0;
+        }
+        return updated;
+      });
+
+      return {
+        currentScript: {
+          ...state.currentScript,
+          actions: updatedActions,
+          updatedAt: Date.now(),
+        },
+      };
+    });
   },
 
   deleteAction: (id) => {
@@ -245,7 +309,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newAction: TimedAction = {
       ...action,
       id: generateId('action'),
-      startTime: action.startTime + 500,
+      startTime: action.originalStartTime + 500,
+      originalStartTime: action.originalStartTime + 500,
     };
 
     set((s) => ({
@@ -285,39 +350,49 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
-  importTrack: async (file) => {
-    const track: TrackInfo = {
-      id: generateId('track'),
-      name: file.name.replace(/\.[^/.]+$/, ''),
-      artist: '未知艺术家',
-      duration: 180000,
-      filePath: file.name,
-      fileHash: generateId('hash'),
-      fileSize: file.size,
-      format: file.name.split('.').pop()?.toUpperCase() || 'MP3',
-      importedAt: Date.now(),
-    };
+  importAudioFile: async (file) => {
+    set({ isAnalyzing: true, analysisResult: null });
 
-    set((state) => ({
-      tracks: [...state.tracks, track],
-      currentTrack: track,
-    }));
+    try {
+      const fileHash = await computeFileHash(file);
+      const analysis = await analyzeAudioFile(file);
+
+      const track: TrackInfo = {
+        id: generateId('track'),
+        name: file.name.replace(/\.[^/.]+$/, ''),
+        artist: '未知艺术家',
+        album: '',
+        duration: analysis.duration,
+        filePath: file.name,
+        fileHash,
+        fileSize: file.size,
+        format: file.name.split('.').pop()?.toUpperCase() || 'MP3',
+        importedAt: Date.now(),
+      };
+
+      set((state) => ({
+        tracks: [...state.tracks, track],
+        currentTrack: track,
+        analysisResult: analysis,
+        isAnalyzing: false,
+        playback: { ...state.playback, duration: analysis.duration },
+      }));
+    } catch (error) {
+      console.error('Failed to analyze audio:', error);
+      set({ isAnalyzing: false });
+      throw error;
+    }
   },
 
   analyzeTrack: async () => {
     set({ isAnalyzing: true });
-
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
+    await new Promise((resolve) => setTimeout(resolve, 500));
     const state = get();
-    const duration = state.currentTrack?.duration || 180000;
-    const analysis = generateMockAnalysis(duration);
-
-    set({
-      analysisResult: analysis,
-      isAnalyzing: false,
-      playback: { ...state.playback, duration: analysis.duration },
-    });
+    if (state.analysisResult) {
+      set({ isAnalyzing: false });
+      return;
+    }
+    set({ isAnalyzing: false });
   },
 
   autoMatchEffects: () => {
@@ -402,7 +477,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       updatedAt: Date.now(),
       version: '0.1.0',
       actions: [],
-      nozzleGroups: state.nozzleGroups,
+      nozzleGroups: [...state.nozzleGroups],
       analysisResult: state.analysisResult,
       performanceRecords: [],
     };
@@ -419,64 +494,176 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set({ isSaving: true });
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      const updatedScript = {
+        ...state.currentScript,
+        updatedAt: Date.now(),
+        version: incrementVersion(state.currentScript.version),
+        nozzleGroups: state.nozzleGroups,
+      };
 
-    const updatedScript = {
-      ...state.currentScript,
-      updatedAt: Date.now(),
-      version: incrementVersion(state.currentScript.version),
-    };
+      if (state.isDbReady) {
+        await db.saveScript(updatedScript);
+        await get().refreshScripts();
+      }
 
-    set((s) => ({
-      scripts: s.scripts.map((sc) =>
-        sc.id === updatedScript.id ? updatedScript : sc
-      ),
-      currentScript: updatedScript,
-      isSaving: false,
-    }));
-  },
-
-  loadScript: (id) => {
-    const state = get();
-    const script = state.scripts.find((s) => s.id === id);
-
-    if (script) {
       set({
-        currentScript: script,
-        analysisResult: script.analysisResult,
-        nozzleGroups: script.nozzleGroups,
-        playback: {
-          ...state.playback,
-          currentTime: 0,
-          duration: script.duration,
-          isPlaying: false,
-        },
+        currentScript: updatedScript,
+        isSaving: false,
       });
-
-      get().validateSafety();
+    } catch (error) {
+      console.error('Failed to save script:', error);
+      set({ isSaving: false });
     }
   },
 
-  deleteScript: (id) => {
-    set((state) => ({
-      scripts: state.scripts.filter((s) => s.id !== id),
-      currentScript: state.currentScript?.id === id ? null : state.currentScript,
-    }));
+  loadScript: async (id) => {
+    set({ isLoading: true });
+
+    try {
+      let script: ShowScript | null = null;
+
+      if (get().isDbReady) {
+        script = await db.getScriptById(id);
+      }
+
+      if (!script) {
+        script = get().scripts.find((s) => s.id === id) || null;
+      }
+
+      if (script) {
+        set({
+          currentScript: script,
+          analysisResult: script.analysisResult,
+          nozzleGroups: script.nozzleGroups,
+          playback: {
+            ...get().playback,
+            currentTime: 0,
+            duration: script.duration,
+            isPlaying: false,
+          },
+          isLoading: false,
+        });
+
+        get().validateSafety();
+      }
+    } catch (error) {
+      console.error('Failed to load script:', error);
+      set({ isLoading: false });
+    }
   },
 
-  exportScript: (id, path) => {
+  deleteScript: async (id) => {
+    try {
+      if (get().isDbReady) {
+        await db.deleteScript(id);
+        await get().refreshScripts();
+      }
+
+      set((state) => ({
+        scripts: state.scripts.filter((s) => s.id !== id),
+        currentScript: state.currentScript?.id === id ? null : state.currentScript,
+      }));
+    } catch (error) {
+      console.error('Failed to delete script:', error);
+    }
+  },
+
+  exportScript: (id) => {
     const state = get();
     const script = state.scripts.find((s) => s.id === id);
-    if (!script) return;
+    if (!script && state.currentScript?.id === id) {
+      const scriptToExport = {
+        ...state.currentScript,
+        nozzleGroups: state.nozzleGroups,
+      };
+      downloadScript(scriptToExport);
+      return;
+    }
+    if (script) {
+      downloadScript(script);
+    }
+  },
 
-    const dataStr = JSON.stringify(script, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${script.name}.fountain`;
-    a.click();
-    URL.revokeObjectURL(url);
+  importScript: async (file) => {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      const importedScript: ShowScript = {
+        id: generateId('script'),
+        name: data.name || file.name.replace(/\.[^/.]+$/, ''),
+        trackId: data.trackId || generateId('imported-track'),
+        trackName: data.trackName || '导入曲目',
+        artist: data.artist || '未知艺术家',
+        category: data.category || 'classic',
+        tags: data.tags || [],
+        duration: data.duration || 180000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        version: data.version || '1.0.0',
+        actions: Array.isArray(data.actions) ? data.actions.map((a: any) => ({
+          ...a,
+          id: generateId('action'),
+          originalStartTime: a.originalStartTime ?? a.startTime,
+          delayCompensation: a.delayCompensation || 0,
+          isCalibrated: a.isCalibrated ?? false,
+        })) : [],
+        nozzleGroups: Array.isArray(data.nozzleGroups) ? data.nozzleGroups.map((g: any) => ({
+          ...g,
+          id: generateId('group'),
+          nozzles: g.nozzles || [],
+        })) : generateDefaultNozzleGroups(),
+        analysisResult: data.analysisResult || null,
+        performanceRecords: Array.isArray(data.performanceRecords) ? data.performanceRecords : [],
+        description: data.description || '',
+      };
+
+      if (get().isDbReady) {
+        await db.saveScript(importedScript);
+        await get().refreshScripts();
+      }
+
+      set((state) => ({
+        scripts: [importedScript, ...state.scripts],
+        currentScript: importedScript,
+        analysisResult: importedScript.analysisResult,
+        nozzleGroups: importedScript.nozzleGroups,
+        playback: {
+          ...state.playback,
+          duration: importedScript.duration,
+        },
+      }));
+
+      get().validateSafety();
+    } catch (error) {
+      console.error('Failed to import script:', error);
+      throw error;
+    }
+  },
+
+  recordPerformance: (record) => {
+    const newRecord: PerformanceRecord = {
+      ...record,
+      id: generateId('perf'),
+    };
+
+    set((state) => {
+      if (!state.currentScript) return { currentScript: null };
+
+      const updatedScript = {
+        ...state.currentScript,
+        performanceRecords: [...state.currentScript.performanceRecords, newRecord],
+        updatedAt: Date.now(),
+      };
+
+      return {
+        currentScript: updatedScript,
+        scripts: state.scripts.map((s) =>
+          s.id === updatedScript.id ? updatedScript : s
+        ),
+      };
+    });
   },
 
   updatePlaybackTime: (time) => {
@@ -509,6 +696,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ warnings: [] });
   },
 }));
+
+const downloadScript = (script: ShowScript) => {
+  const exportData = {
+    ...script,
+    exportedAt: Date.now(),
+    exportedFrom: 'Fountain Choreography Studio',
+    version: '1.0.0',
+  };
+
+  const dataStr = JSON.stringify(exportData, null, 2);
+  const blob = new Blob([dataStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${script.name}.fountain.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
 
 const incrementVersion = (version: string): string => {
   const parts = version.split('.').map(Number);

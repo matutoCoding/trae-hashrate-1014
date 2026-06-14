@@ -539,23 +539,33 @@ export const CalibrationPage: React.FC = () => {
             </div>
 
             <div className="industrial-panel p-4">
-              <h3 className="industrial-label mb-4">时序校准矩阵</h3>
-              <div className="overflow-auto max-h-64">
+              <h3 className="industrial-label mb-4 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-accent" />
+                时间对比表 (前10个动作)
+              </h3>
+              <div className="overflow-auto max-h-80">
                 <table className="w-full text-xs font-mono">
                   <thead>
                     <tr className="text-industrial-muted text-[10px] uppercase">
+                      <th className="text-left py-2 px-3 bg-industrial-bg sticky top-0">#</th>
                       <th className="text-left py-2 px-3 bg-industrial-bg sticky top-0">喷头组</th>
-                      <th className="text-left py-2 px-3 bg-industrial-bg sticky top-0">原时间</th>
-                      <th className="text-left py-2 px-3 bg-industrial-bg sticky top-0">补偿后</th>
-                      <th className="text-left py-2 px-3 bg-industrial-bg sticky top-0">提前量</th>
-                      <th className="text-left py-2 px-3 bg-industrial-bg sticky top-0">状态</th>
+                      <th className="text-right py-2 px-3 bg-industrial-bg sticky top-0">原始编排时间</th>
+                      <th className="text-right py-2 px-3 bg-industrial-bg sticky top-0">延迟补偿量</th>
+                      <th className="text-right py-2 px-3 bg-industrial-bg sticky top-0">实际触发时间</th>
+                      <th className="text-center py-2 px-3 bg-industrial-bg sticky top-0">状态</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {currentScript.actions.slice(0, 20).map((action) => {
+                    {currentScript.actions.slice(0, 10).map((action, index) => {
                       const group = nozzleGroups.find((g) => g.id === action.nozzleGroupId);
+                      const originalTime = action.originalStartTime ?? action.startTime;
+                      const actualTime = action.startTime;
+                      const compensation = action.delayCompensation;
                       return (
                         <tr key={action.id} className="border-t border-industrial-border/50 hover:bg-industrial-bg/50">
+                          <td className="py-2 px-3 text-industrial-muted">
+                            {index + 1}
+                          </td>
                           <td className="py-2 px-3">
                             <div className="flex items-center gap-2">
                               <div
@@ -565,20 +575,26 @@ export const CalibrationPage: React.FC = () => {
                               <span className="text-industrial-text">{group?.name}</span>
                             </div>
                           </td>
-                          <td className="py-2 px-3 text-industrial-muted">
-                            {formatTime(action.startTime + action.delayCompensation)}
+                          <td className="py-2 px-3 text-right text-industrial-muted">
+                            {formatTime(originalTime)}
                           </td>
-                          <td className="py-2 px-3 text-accent">
-                            {formatTime(action.startTime)}
+                          <td className="py-2 px-3 text-right text-warning">
+                            -{Math.round(compensation)}ms
                           </td>
-                          <td className="py-2 px-3 text-success">
-                            -{action.delayCompensation}ms
+                          <td className="py-2 px-3 text-right text-accent font-bold">
+                            {formatTime(actualTime)}
                           </td>
-                          <td className="py-2 px-3">
+                          <td className="py-2 px-3 text-center">
                             {action.delayCompensation > 0 ? (
-                              <span className="text-success">已补偿</span>
+                              <span className="inline-flex items-center gap-1 text-success">
+                                <CheckCircle className="w-3 h-3" />
+                                已补偿
+                              </span>
                             ) : (
-                              <span className="text-industrial-muted">待校准</span>
+                              <span className="inline-flex items-center gap-1 text-industrial-muted">
+                                <AlertCircle className="w-3 h-3" />
+                                待校准
+                              </span>
                             )}
                           </td>
                         </tr>
@@ -587,6 +603,11 @@ export const CalibrationPage: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+              {currentScript.actions.length > 10 && (
+                <p className="text-[10px] text-industrial-muted mt-2 text-center">
+                  共 {currentScript.actions.length} 个动作，仅显示前 10 个
+                </p>
+              )}
             </div>
           </div>
 

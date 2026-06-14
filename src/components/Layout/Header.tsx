@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Save,
@@ -8,6 +8,9 @@ import {
   Redo2,
   Play,
   AlertTriangle,
+  ChevronDown,
+  Music,
+  FileJson,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { formatTime } from '@/algorithm/core';
@@ -20,13 +23,31 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ title }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [showImportMenu, setShowImportMenu] = useState(false);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+  const scriptInputRef = useRef<HTMLInputElement>(null);
+  const importMenuRef = useRef<HTMLDivElement>(null);
+
   const currentScript = useAppStore((state) => state.currentScript);
   const isSaving = useAppStore((state) => state.isSaving);
   const warnings = useAppStore((state) => state.warnings);
   const playback = useAppStore((state) => state.playback);
   const saveScript = useAppStore((state) => state.saveScript);
   const exportScript = useAppStore((state) => state.exportScript);
+  const importAudioFile = useAppStore((state) => state.importAudioFile);
+  const importScript = useAppStore((state) => state.importScript);
   const togglePlay = useAppStore((state) => state.togglePlay);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (importMenuRef.current && !importMenuRef.current.contains(event.target as Node)) {
+        setShowImportMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const pageTitles: Record<string, string> = {
     '/': '音轨解析',
@@ -48,8 +69,42 @@ export const Header: React.FC<HeaderProps> = ({ title }) => {
 
   const handleExport = () => {
     if (currentScript) {
-      exportScript(currentScript.id, '');
+      exportScript(currentScript.id);
     }
+  };
+
+  const handleImportAudio = () => {
+    setShowImportMenu(false);
+    audioInputRef.current?.click();
+  };
+
+  const handleImportScript = () => {
+    setShowImportMenu(false);
+    scriptInputRef.current?.click();
+  };
+
+  const handleAudioFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        await importAudioFile(file);
+      } catch (error) {
+        console.error('导入音频失败:', error);
+      }
+    }
+    e.target.value = '';
+  };
+
+  const handleScriptFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        await importScript(file);
+      } catch (error) {
+        console.error('导入脚本失败:', error);
+      }
+    }
+    e.target.value = '';
   };
 
   return (
@@ -119,10 +174,53 @@ export const Header: React.FC<HeaderProps> = ({ title }) => {
           </>
         )}
 
-        <button className="industrial-button flex items-center gap-2">
-          <Upload className="w-4 h-4" />
-          <span className="text-xs hidden sm:inline">导入</span>
-        </button>
+        <div className="relative" ref={importMenuRef}>
+          <button
+            onClick={() => setShowImportMenu(!showImportMenu)}
+            className={cn(
+              'industrial-button flex items-center gap-2',
+              showImportMenu && 'border-accent text-accent'
+            )}
+          >
+            <Upload className="w-4 h-4" />
+            <span className="text-xs hidden sm:inline">导入</span>
+            <ChevronDown className={cn('w-3 h-3 transition-transform', showImportMenu && 'rotate-180')} />
+          </button>
+
+          {showImportMenu && (
+            <div className="absolute top-full right-0 mt-1 w-40 bg-industrial-panel border border-industrial-border rounded-md shadow-lg z-50 overflow-hidden">
+              <button
+                onClick={handleImportAudio}
+                className="w-full px-3 py-2 text-left text-xs text-industrial-text hover:bg-industrial-bg flex items-center gap-2 transition-colors"
+              >
+                <Music className="w-4 h-4 text-accent" />
+                导入音频
+              </button>
+              <button
+                onClick={handleImportScript}
+                className="w-full px-3 py-2 text-left text-xs text-industrial-text hover:bg-industrial-bg flex items-center gap-2 transition-colors border-t border-industrial-border"
+              >
+                <FileJson className="w-4 h-4 text-success" />
+                导入脚本
+              </button>
+            </div>
+          )}
+        </div>
+
+        <input
+          ref={audioInputRef}
+          type="file"
+          accept="audio/*"
+          onChange={handleAudioFileChange}
+          className="hidden"
+        />
+        <input
+          ref={scriptInputRef}
+          type="file"
+          accept=".json"
+          onChange={handleScriptFileChange}
+          className="hidden"
+        />
 
         <button
           onClick={handleExport}

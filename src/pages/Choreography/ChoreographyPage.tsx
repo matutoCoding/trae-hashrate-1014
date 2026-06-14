@@ -103,7 +103,6 @@ export const ChoreographyPage: React.FC = () => {
       startTime: Math.round(time / 50) * 50,
       duration: 2000,
       intensity: 0.8,
-      delayCompensation: 0,
       parameters: params,
     });
 

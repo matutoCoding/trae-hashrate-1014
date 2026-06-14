@@ -183,6 +183,7 @@ export const PlaybackPage: React.FC = () => {
   const togglePlay = useAppStore((state) => state.togglePlay);
   const resetPlayback = useAppStore((state) => state.resetPlayback);
   const saveScript = useAppStore((state) => state.saveScript);
+  const recordPerformance = useAppStore((state) => state.recordPerformance);
 
   const unresolvedWarnings = warnings.filter((w) => !w.resolved);
 
@@ -225,18 +226,16 @@ export const PlaybackPage: React.FC = () => {
   const handleSavePerformance = async () => {
     if (!currentScript) return;
 
-    const record = {
-      id: `perf-${Date.now()}`,
+    recordPerformance({
       timestamp: Date.now(),
       operator: '当前用户',
       venue: '模拟演出',
-      status: 'success' as const,
+      status: 'success',
       notes: '预演回放完成',
       anomalies: [],
       duration: playback.duration,
-    };
+    });
 
-    currentScript.performanceRecords.push(record);
     await saveScript();
   };
 

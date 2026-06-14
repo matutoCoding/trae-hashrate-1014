@@ -99,23 +99,23 @@ export const LibraryPage: React.FC = () => {
     return categories.find((c) => c.id === categoryId) || categories[0];
   };
 
-  const handleLoadScript = (script: ShowScript) => {
-    loadScript(script.id);
+  const handleLoadScript = async (script: ShowScript) => {
+    await loadScript(script.id);
     navigate('/choreography');
   };
 
-  const handlePlayScript = (script: ShowScript) => {
-    loadScript(script.id);
+  const handlePlayScript = async (script: ShowScript) => {
+    await loadScript(script.id);
     navigate('/playback');
   };
 
   const handleExportScript = (script: ShowScript) => {
-    exportScript(script.id, '');
+    exportScript(script.id);
   };
 
-  const handleDeleteScript = (script: ShowScript) => {
+  const handleDeleteScript = async (script: ShowScript) => {
     if (confirm(`确定要删除脚本 "${script.name}" 吗？`)) {
-      deleteScript(script.id);
+      await deleteScript(script.id);
       if (selectedScriptId === script.id) {
         setSelectedScriptId(null);
       }
